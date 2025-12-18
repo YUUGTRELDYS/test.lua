@@ -1,0 +1,1779 @@
+local TweenService = game:GetService("TweenService")
+local player = game.Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GameRemotes = ReplicatedStorage:WaitForChild("GameRemotes")
+local Attack = GameRemotes:WaitForChild("Attack")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local MoveItem = GameRemotes:FindFirstChild("MoveItem") or GameRemotes:FindFirstChild("MoveItems")
+local SortItem = GameRemotes:FindFirstChild("SortItem") or GameRemotes:FindFirstChild("SortItems")
+local Demo = GameRemotes:FindFirstChild("Demo") or workspace:FindFirstChild("Demo")
+
+if not Demo then
+    for _, obj in pairs(workspace:GetChildren()) do
+        if obj.Name == "Demo" then
+            Demo = obj
+            break
+        end
+    end
+end
+
+local strafeEnabled = false
+local killAuraActive = true
+local mouseLocked = true
+local speedActive = false
+local holdDurationG = 3
+local holdStartTimeG = nil
+
+local noFallEnabled = false
+local jesusEnabled = false
+
+local ignoredPlayers = {}
+local playerStates = {}
+
+local walkSpeed = 16
+local originalWalkSpeed = 16
+local speedMultiplier = 2
+
+local killAuraDelay = 0.05
+
+local instantBreakEnabled = false
+
+local xrayESPStates = {
+    CoalOre = false,
+    SteelOre = false,
+    GoldOre = false,
+    DiamondOre = false,
+    RubyOre = false,
+    SapphireOre = false,
+    Wheat5 = false,
+    Custom = false
+}
+local customBlockName = ""
+local xrayWindow = nil
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = game.CoreGui
+
+local function notify(text)
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "Control Panel",
+        Text = text,
+        Duration = 5
+    })
+end
+
+local function toggleNoFall()
+    noFallEnabled = not noFallEnabled
+    if Demo then
+        if noFallEnabled then
+            if Demo.Parent == GameRemotes then
+                Demo.Parent = workspace
+            end
+        else
+            if Demo.Parent == workspace then
+                Demo.Parent = GameRemotes
+            end
+        end
+    end
+end
+
+local function toggleJesus()
+    jesusEnabled = not jesusEnabled
+end
+
+local function updateJesus()
+    if not jesusEnabled then return end
+    local fluidFolder = workspace:FindFirstChild("Fluid")
+    if fluidFolder then
+        for _, child in pairs(fluidFolder:GetChildren()) do
+            for _, grandchild in pairs(child:GetChildren()) do
+                if grandchild:IsA("BasePart") and (grandchild.Name == "Water" or grandchild.Name == "Lava") then
+                    grandchild.CanCollide = true
+                end
+            end
+        end
+    end
+end
+
+spawn(function()
+    while true do
+        if jesusEnabled then
+            updateJesus()
+        end
+        task.wait(0.1)
+    end
+end)
+
+local function DupeSelectedItem()
+    if not MoveItem then
+        notify("MoveItem remote not found")
+        return
+    end
+    
+    local inv = player.PlayerGui:FindFirstChild("HUDGui")
+    if not inv then return end
+    inv = inv:FindFirstChild("Inventory")
+    if not inv then return end
+    local slots = inv:FindFirstChild("Slots")
+    if not slots then return end
+    local slot1 = slots:FindFirstChild("Slot-1")
+    if not slot1 then return end
+    slot1 = slot1:FindFirstChild("SlotNA")
+    if not slot1 then return end
+    local slot1Count = slot1:FindFirstChild("Count")
+    if not slot1Count then return end
+    
+    if slot1Count.Text == "0" then
+        notify("Select item first")
+        return
+    end
+    
+    if slot1Count.Text == "64" then
+        notify("Item limit reached")
+        return
+    end
+    
+    local targetSlot = nil
+    for _, slotFrame in pairs(slots:GetChildren()) do
+        if slotFrame.Name ~= "Slot-1" and slotFrame:FindFirstChild("Slot") then
+            local display1 = slot1:FindFirstChild("Display")
+            local display2 = slotFrame.Slot:FindFirstChild("Display")
+            
+            if display1 and display2 then
+                local child1 = display1:GetChildren()[2]
+                local child2 = display2:GetChildren()[2]
+                
+                if child1 and child2 and child1.Name == child2.Name then
+                    targetSlot = slotFrame.Name
+                    break
+                end
+            end
+        end
+    end
+    
+    if not targetSlot then
+        local howmuch = 64 - tonumber(slot1Count.Text)
+        local success, err = pcall(function()
+            MoveItem:InvokeServer(-1, 82, true, -howmuch)
+        end)
+        
+        if success then
+            notify("Dupe attempted")
+        else
+            notify("Need 2 identical items")
+        end
+        return
+    end
+    
+    local slotNum = tonumber(string.match(targetSlot, "%d+"))
+    local howmuch = 64 - tonumber(slot1Count.Text)
+    local success, err = pcall(function()
+        MoveItem:InvokeServer(-1, slotNum, true, -howmuch)
+    end)
+    
+    if success then
+        notify("Duping successful")
+    else
+        notify("Failed: " .. tostring(err))
+    end
+end
+
+local function DupeWithChest()
+    if not SortItem then
+        notify("SortItem remote not found")
+        return
+    end
+    
+    notify("Starting chest dupe")
+    
+    for i = 36, 62 do
+        task.spawn(function()
+            pcall(function()
+                SortItem:InvokeServer(i)
+            end)
+        end)
+    end
+    
+    for i = 1, 25 do
+        task.spawn(function()
+            pcall(function()
+                SortItem:InvokeServer(1)
+            end)
+        end)
+    end
+    
+    notify("Chest duped")
+end
+
+local function DupeMethod2()
+    if not MoveItem then
+        notify("MoveItem remote not found")
+        return
+    end
+    
+    local inv = player.PlayerGui:FindFirstChild("HUDGui")
+    if inv then inv = inv:FindFirstChild("Inventory") end
+    if inv then inv = inv:FindFirstChild("Slots") end
+    
+    if not inv then
+        notify("Inventory not found")
+        return
+    end
+    
+    local slot1 = inv:FindFirstChild("Slot-1")
+    if slot1 then slot1 = slot1:FindFirstChild("SlotNA") end
+    if slot1 then slot1 = slot1:FindFirstChild("Count") end
+    
+    if not slot1 then
+        notify("Slot-1 not found")
+        return
+    end
+    
+    if slot1.Text == "0" then
+        notify("Select item first")
+        return
+    end
+    
+    local slot0 = inv:FindFirstChild("Slot0")
+    if slot0 then slot0 = slot0:FindFirstChild("Slot") end
+    if slot0 then slot0 = slot0:FindFirstChild("Count") end
+    
+    if slot0 and slot0.Text ~= "0" then
+        notify("Free slot 0 first")
+        return
+    end
+    
+    if slot1.Text ~= "2" then
+        notify("Need 2 items")
+        return
+    end
+    
+    local success = pcall(function()
+        MoveItem:InvokeServer(-1, 0, true, 0.01)
+    end)
+    
+    if success then
+        notify("Method executed")
+    else
+        notify("Method failed")
+    end
+end
+
+local function KillMe()
+    if player.Character and player.Character:FindFirstChild("Humanoid") then
+        player.Character.Humanoid.Health = 0
+        notify("Character killed")
+    end
+end
+
+local partName2Color = {
+    CoalOre = "Really black",
+    SteelOre = "Medium stone grey",
+    GoldOre = "Gold",
+    DiamondOre = "Cyan",
+    RubyOre = "Really red",
+    SapphireOre = "Really blue",
+    Wheat5 = "Wheat"
+}
+
+local function createESP(adornee, color)
+    local a = Instance.new("BoxHandleAdornment")
+    a.Parent = adornee
+    a.Adornee = adornee
+    a.AlwaysOnTop = true
+    a.ZIndex = 0
+    a.Size = adornee.Size
+    a.Transparency = 0.5
+    a.Color = BrickColor.new(color)
+    return a
+end
+
+local function initESP(name, state)
+    if not workspace:FindFirstChild("Blocks") then return end
+    
+    local blocks = workspace.Blocks
+    
+    if state then
+        local color = partName2Color[name]
+        if color == nil then
+            color = 'Institutional white'
+        end
+        for _, v in pairs(blocks:GetDescendants()) do
+            if v.Name == name and not v:FindFirstChildOfClass("BoxHandleAdornment") then
+                createESP(v, color)
+            end
+        end
+    else
+        for _, v in pairs(blocks:GetDescendants()) do
+            if v:IsA('BoxHandleAdornment') and v.Parent.Name == name then
+                v:Destroy()
+            end
+        end
+    end
+end
+
+local function clearAllESP()
+    if not workspace:FindFirstChild("Blocks") then return end
+    
+    local blocks = workspace.Blocks
+    for _, v in pairs(blocks:GetDescendants()) do
+        if v:IsA('BoxHandleAdornment') then
+            v:Destroy()
+        end
+    end
+end
+
+local function setupBlockListener()
+    if not workspace:FindFirstChild("Blocks") then return end
+    
+    local blocks = workspace.Blocks
+    blocks.DescendantAdded:Connect(function(v)
+        if v.Name == 'CoalOre' and xrayESPStates.CoalOre then
+            createESP(v, "Really black")
+        elseif v.Name == 'SteelOre' and xrayESPStates.SteelOre then
+            createESP(v, "Medium stone grey")
+        elseif v.Name == 'GoldOre' and xrayESPStates.GoldOre then
+            createESP(v, "Gold")
+        elseif v.Name == 'DiamondOre' and xrayESPStates.DiamondOre then
+            createESP(v, "Cyan")
+        elseif v.Name == 'RubyOre' and xrayESPStates.RubyOre then
+            createESP(v, "Really red")
+        elseif v.Name == 'SapphireOre' and xrayESPStates.SapphireOre then
+            createESP(v, "Really blue")
+        elseif v.Name == 'Wheat5' and xrayESPStates.Wheat5 then
+            createESP(v, "Wheat")
+        elseif customBlockName ~= "" and v.Name == customBlockName and xrayESPStates.Custom then
+            createESP(v, "Institutional white")
+        end
+    end)
+end
+
+local function createXrayMenu()
+    if xrayWindow then
+        xrayWindow.Visible = true
+        return
+    end
+    
+    xrayWindow = Instance.new("Frame")
+    xrayWindow.Size = UDim2.new(0, 250, 0, 320)
+    xrayWindow.Position = UDim2.new(0.5, -125, 0.5, -160)
+    xrayWindow.BackgroundColor3 = Color3.fromRGB(20, 20, 40)
+    xrayWindow.BorderSizePixel = 2
+    xrayWindow.BorderColor3 = Color3.fromRGB(80, 160, 80)
+    xrayWindow.Visible = true
+    xrayWindow.Active = true
+    xrayWindow.Draggable = true
+    xrayWindow.Selectable = true
+    xrayWindow.Parent = screenGui
+    
+    local xrayWindowCorner = Instance.new("UICorner")
+    xrayWindowCorner.CornerRadius = UDim.new(0, 12)
+    xrayWindowCorner.Parent = xrayWindow
+    
+    local xrayTitle = Instance.new("TextLabel")
+    xrayTitle.Size = UDim2.new(1, 0, 0.1, 0)
+    xrayTitle.Position = UDim2.new(0, 0, 0, 5)
+    xrayTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    xrayTitle.BackgroundTransparency = 1
+    xrayTitle.Font = Enum.Font.GothamBold
+    xrayTitle.TextSize = 18
+    xrayTitle.Text = "XRAY"
+    xrayTitle.Parent = xrayWindow
+    
+    local closeXrayButton = Instance.new("TextButton")
+    closeXrayButton.Size = UDim2.new(0.1, 0, 0.1, 0)
+    closeXrayButton.Position = UDim2.new(0.85, 0, 0, 5)
+    closeXrayButton.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+    closeXrayButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeXrayButton.Font = Enum.Font.GothamBold
+    closeXrayButton.TextSize = 16
+    closeXrayButton.Text = "X"
+    closeXrayButton.Parent = xrayWindow
+    
+    local closeXrayCorner = Instance.new("UICorner")
+    closeXrayCorner.CornerRadius = UDim.new(0, 8)
+    closeXrayCorner.Parent = closeXrayButton
+    
+    local xrayScrolling = Instance.new("ScrollingFrame")
+    xrayScrolling.Size = UDim2.new(0.92, 0, 0.85, 0)
+    xrayScrolling.Position = UDim2.new(0.04, 0, 0.12, 0)
+    xrayScrolling.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    xrayScrolling.BorderSizePixel = 0
+    xrayScrolling.ScrollBarThickness = 8
+    xrayScrolling.ScrollBarImageColor3 = Color3.fromRGB(80, 160, 80)
+    xrayScrolling.Parent = xrayWindow
+    
+    local xrayListLayout = Instance.new("UIListLayout")
+    xrayListLayout.Padding = UDim.new(0, 5)
+    xrayListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    xrayListLayout.Parent = xrayScrolling
+    
+    local function createXrayToggle(name, displayName, initialState)
+        local toggleFrame = Instance.new("Frame")
+        toggleFrame.Size = UDim2.new(0.9, 0, 0, 35)
+        toggleFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+        toggleFrame.Parent = xrayScrolling
+        
+        local toggleCorner = Instance.new("UICorner")
+        toggleCorner.CornerRadius = UDim.new(0, 6)
+        toggleCorner.Parent = toggleFrame
+        
+        local label = Instance.new("TextLabel")
+        label.Text = displayName
+        label.Size = UDim2.new(0.7, 0, 1, 0)
+        label.Position = UDim2.new(0.05, 0, 0, 0)
+        label.BackgroundTransparency = 1
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.Font = Enum.Font.Gotham
+        label.TextSize = 12
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = toggleFrame
+        
+        local toggleButton = Instance.new("TextButton")
+        toggleButton.Size = UDim2.new(0.25, 0, 0.7, 0)
+        toggleButton.Position = UDim2.new(0.7, 0, 0.15, 0)
+        toggleButton.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+        toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+        toggleButton.Font = Enum.Font.GothamBold
+        toggleButton.TextSize = 12
+        toggleButton.Text = "OFF"
+        toggleButton.Parent = toggleFrame
+        
+        local buttonCorner = Instance.new("UICorner")
+        buttonCorner.CornerRadius = UDim.new(0, 4)
+        buttonCorner.Parent = toggleButton
+        
+        if initialState then
+            toggleButton.Text = "ON"
+            toggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        end
+        
+        toggleButton.MouseButton1Click:Connect(function()
+            local newState = toggleButton.Text == "OFF"
+            toggleButton.Text = newState and "ON" or "OFF"
+            toggleButton.BackgroundColor3 = newState and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(150, 50, 50)
+            
+            xrayESPStates[name] = newState
+            initESP(name, newState)
+        end)
+        
+        return toggleFrame
+    end
+    
+    createXrayToggle("CoalOre", "Coal Ore", xrayESPStates.CoalOre)
+    createXrayToggle("SteelOre", "Steel Ore", xrayESPStates.SteelOre)
+    createXrayToggle("GoldOre", "Gold Ore", xrayESPStates.GoldOre)
+    createXrayToggle("DiamondOre", "Diamond Ore", xrayESPStates.DiamondOre)
+    createXrayToggle("RubyOre", "Ruby Ore", xrayESPStates.RubyOre)
+    createXrayToggle("SapphireOre", "Sapphire Ore", xrayESPStates.SapphireOre)
+    createXrayToggle("Wheat5", "Sprouted Wheat", xrayESPStates.Wheat5)
+    
+    local customFrame = Instance.new("Frame")
+    customFrame.Size = UDim2.new(0.9, 0, 0, 70)
+    customFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+    customFrame.Parent = xrayScrolling
+    
+    local customCorner = Instance.new("UICorner")
+    customCorner.CornerRadius = UDim.new(0, 6)
+    customCorner.Parent = customFrame
+    
+    local customLabel = Instance.new("TextLabel")
+    customLabel.Text = "Custom Block"
+    customLabel.Size = UDim2.new(0.8, 0, 0.3, 0)
+    customLabel.Position = UDim2.new(0.1, 0, 0, 5)
+    customLabel.BackgroundTransparency = 1
+    customLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    customLabel.Font = Enum.Font.Gotham
+    customLabel.TextSize = 11
+    customLabel.Parent = customFrame
+    
+    local customInput = Instance.new("TextBox")
+    customInput.PlaceholderText = "Block name"
+    customInput.Size = UDim2.new(0.6, 0, 0.3, 0)
+    customInput.Position = UDim2.new(0.1, 0, 0.35, 0)
+    customInput.BackgroundColor3 = Color3.fromRGB(70, 70, 90)
+    customInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+    customInput.Font = Enum.Font.Gotham
+    customInput.TextSize = 12
+    customInput.Text = customBlockName
+    customInput.Parent = customFrame
+    
+    local customInputCorner = Instance.new("UICorner")
+    customInputCorner.CornerRadius = UDim.new(0, 4)
+    customInputCorner.Parent = customInput
+    
+    local customToggleButton = Instance.new("TextButton")
+    customToggleButton.Size = UDim2.new(0.2, 0, 0.3, 0)
+    customToggleButton.Position = UDim2.new(0.75, 0, 0.35, 0)
+    customToggleButton.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+    customToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    customToggleButton.Font = Enum.Font.GothamBold
+    customToggleButton.TextSize = 12
+    customToggleButton.Text = "OFF"
+    customToggleButton.Parent = customFrame
+    
+    local customButtonCorner = Instance.new("UICorner")
+    customButtonCorner.CornerRadius = UDim.new(0, 4)
+    customButtonCorner.Parent = customToggleButton
+    
+    if xrayESPStates.Custom then
+        customToggleButton.Text = "ON"
+        customToggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+    end
+    
+    customToggleButton.MouseButton1Click:Connect(function()
+        if customInput.Text == "" then
+            notify("Enter block name first")
+            return
+        end
+        
+        local newState = customToggleButton.Text == "OFF"
+        customToggleButton.Text = newState and "ON" or "OFF"
+        customToggleButton.BackgroundColor3 = newState and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(150, 50, 50)
+        
+        customBlockName = customInput.Text
+        xrayESPStates.Custom = newState
+        initESP(customBlockName, newState)
+    end)
+    
+    customInput.FocusLost:Connect(function()
+        customBlockName = customInput.Text
+        if customToggleButton.Text == "ON" then
+            initESP(customBlockName, true)
+        end
+    end)
+    
+    local clearAllButton = Instance.new("TextButton")
+    clearAllButton.Size = UDim2.new(0.9, 0, 0, 40)
+    clearAllButton.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+    clearAllButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    clearAllButton.Font = Enum.Font.Gotham
+    clearAllButton.TextSize = 14
+    clearAllButton.Text = "CLEAR ALL ESP"
+    clearAllButton.Parent = xrayScrolling
+    
+    local clearAllButtonCorner = Instance.new("UICorner")
+    clearAllButtonCorner.CornerRadius = UDim.new(0, 8)
+    clearAllButtonCorner.Parent = clearAllButton
+    
+    clearAllButton.MouseButton1Click:Connect(function()
+        clearAllESP()
+        for name, _ in pairs(xrayESPStates) do
+            xrayESPStates[name] = false
+        end
+        
+        if xrayWindow then
+            xrayWindow:Destroy()
+            xrayWindow = nil
+            createXrayMenu()
+        end
+        notify("All ESP cleared")
+    end)
+    
+    closeXrayButton.MouseButton1Click:Connect(function()
+        xrayWindow.Visible = false
+        controlPanel.Visible = false
+    end)
+    
+    xrayScrolling.CanvasSize = UDim2.new(0, 0, 0, xrayListLayout.AbsoluteContentSize.Y + 10)
+    
+    xrayListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        xrayScrolling.CanvasSize = UDim2.new(0, 0, 0, xrayListLayout.AbsoluteContentSize.Y + 10)
+    end)
+end
+
+
+local openPanelButton = Instance.new("TextButton")
+openPanelButton.Size = UDim2.new(0, 40, 0, 40)
+openPanelButton.Position = UDim2.new(1, -50, 1, -50)
+openPanelButton.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+openPanelButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+openPanelButton.Font = Enum.Font.GothamBold
+openPanelButton.TextSize = 16
+openPanelButton.Text = "P"
+openPanelButton.Parent = screenGui
+
+local buttonCorner = Instance.new("UICorner")
+buttonCorner.CornerRadius = UDim.new(0, 20)
+buttonCorner.Parent = openPanelButton
+
+local controlPanel = Instance.new("Frame")
+controlPanel.Size = UDim2.new(0, 350, 0, 350)
+controlPanel.Position = UDim2.new(0.5, -175, 0.3, 0)
+controlPanel.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+controlPanel.BorderSizePixel = 2
+controlPanel.BorderColor3 = Color3.fromRGB(100, 0, 200)
+controlPanel.Visible = false
+controlPanel.Parent = screenGui
+
+controlPanel.Active = true
+controlPanel.Draggable = true
+controlPanel.Selectable = true
+
+local panelCorner = Instance.new("UICorner")
+panelCorner.CornerRadius = UDim.new(0, 12)
+panelCorner.Parent = controlPanel
+
+local panelGradient = Instance.new("UIGradient")
+panelGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0.00, Color3.fromRGB(70, 0, 130)),
+    ColorSequenceKeypoint.new(1.00, Color3.fromRGB(25, 25, 40))
+}
+panelGradient.Rotation = 45
+panelGradient.Parent = controlPanel
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 0.08, 0)
+titleLabel.Position = UDim2.new(0, 0, 0, 5)
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 18
+titleLabel.Text = "CONTROL PANEL"
+titleLabel.Parent = controlPanel
+
+local scrollingFrame = Instance.new("ScrollingFrame")
+scrollingFrame.Size = UDim2.new(0.95, 0, 0.9, 0)
+scrollingFrame.Position = UDim2.new(0.025, 0, 0.1, 0)
+scrollingFrame.BackgroundTransparency = 1
+scrollingFrame.BorderSizePixel = 0
+scrollingFrame.ScrollBarThickness = 6
+scrollingFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 0, 200)
+scrollingFrame.Parent = controlPanel
+
+local uiListLayout = Instance.new("UIListLayout")
+uiListLayout.Padding = UDim.new(0, 5)
+uiListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+uiListLayout.Parent = scrollingFrame
+
+local speedFrame = Instance.new("Frame")
+speedFrame.Size = UDim2.new(0.9, 0, 0, 80)
+speedFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+speedFrame.Parent = scrollingFrame
+
+local speedCorner = Instance.new("UICorner")
+speedCorner.CornerRadius = UDim.new(0, 8)
+speedCorner.Parent = speedFrame
+
+local speedButton = Instance.new("TextButton")
+speedButton.Size = UDim2.new(0.8, 0, 0.4, 0)
+speedButton.Position = UDim2.new(0.1, 0, 0.1, 0)
+speedButton.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+speedButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedButton.Font = Enum.Font.Gotham
+speedButton.TextSize = 14
+speedButton.Text = "SPEED: OFF"
+speedButton.Parent = speedFrame
+
+local speedButtonCorner = Instance.new("UICorner")
+speedButtonCorner.CornerRadius = UDim.new(0, 8)
+speedButtonCorner.Parent = speedButton
+
+local speedSlider = Instance.new("Frame")
+speedSlider.Size = UDim2.new(0.8, 0, 0.2, 0)
+speedSlider.Position = UDim2.new(0.1, 0, 0.55, 0)
+speedSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+speedSlider.Parent = speedFrame
+
+local speedSliderCorner = Instance.new("UICorner")
+speedSliderCorner.CornerRadius = UDim.new(0, 4)
+speedSliderCorner.Parent = speedSlider
+
+local speedFill = Instance.new("Frame")
+speedFill.Size = UDim2.new(0.5, 0, 1, 0)
+speedFill.BackgroundColor3 = Color3.fromRGB(0, 150, 200)
+speedFill.Parent = speedSlider
+
+local speedFillCorner = Instance.new("UICorner")
+speedFillCorner.CornerRadius = UDim.new(0, 4)
+speedFillCorner.Parent = speedFill
+
+local speedValueLabel = Instance.new("TextLabel")
+speedValueLabel.Size = UDim2.new(0.8, 0, 0.2, 0)
+speedValueLabel.Position = UDim2.new(0.1, 0, 0.8, 0)
+speedValueLabel.BackgroundTransparency = 1
+speedValueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedValueLabel.Font = Enum.Font.Gotham
+speedValueLabel.TextSize = 12
+speedValueLabel.Text = "Speed: 2x"
+speedValueLabel.Parent = speedFrame
+
+local auraButton = Instance.new("TextButton")
+auraButton.Size = UDim2.new(0.9, 0, 0, 40)
+auraButton.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+auraButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+auraButton.Font = Enum.Font.Gotham
+auraButton.TextSize = 14
+auraButton.Text = "KILL AURA: ON"
+auraButton.Parent = scrollingFrame
+
+local auraButtonCorner = Instance.new("UICorner")
+auraButtonCorner.CornerRadius = UDim.new(0, 8)
+auraButtonCorner.Parent = auraButton
+
+local instantBreakButton = Instance.new("TextButton")
+instantBreakButton.Size = UDim2.new(0.9, 0, 0, 40)
+instantBreakButton.BackgroundColor3 = Color3.fromRGB(80, 160, 255)
+instantBreakButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+instantBreakButton.Font = Enum.Font.Gotham
+instantBreakButton.TextSize = 14
+instantBreakButton.Text = "INSTANT BREAK: OFF"
+instantBreakButton.Parent = scrollingFrame
+
+local atmosphereButtonPanel = Instance.new("TextButton")
+atmosphereButtonPanel.Size = UDim2.new(0.9, 0, 0, 40)
+atmosphereButtonPanel.BackgroundColor3 = Color3.fromRGB(255, 255, 0)
+atmosphereButtonPanel.TextColor3 = Color3.fromRGB(0, 0, 0)
+atmosphereButtonPanel.Font = Enum.Font.Gotham
+atmosphereButtonPanel.TextSize = 14
+atmosphereButtonPanel.Text = "ATMOSPHERE: OFF"
+atmosphereButtonPanel.Parent = scrollingFrame
+
+local atmosphereButtonPanelCorner = Instance.new("UICorner")
+atmosphereButtonPanelCorner.CornerRadius = UDim.new(0, 8)
+atmosphereButtonPanelCorner.Parent = atmosphereButtonPanel
+
+local atmosphereActivePanel = false
+local lighting = game:GetService("Lighting")
+
+local originalSettings = {
+    FogColor = lighting.FogColor,
+    FogEnd = lighting.FogEnd,
+    FogStart = lighting.FogStart,
+    Brightness = lighting.Brightness,
+    ClockTime = lighting.ClockTime,
+    Ambient = lighting.Ambient
+}
+
+local colorCorrection, atmosphereEffect
+
+local function enableAtmosphere()
+    lighting.FogColor = Color3.fromRGB(100, 0, 150)
+    lighting.FogEnd = 500
+    lighting.FogStart = 50
+    lighting.Brightness = 1.2
+    lighting.ClockTime = 18
+    lighting.Ambient = Color3.fromRGB(100, 100, 150)
+
+    if not colorCorrection then
+        colorCorrection = Instance.new("ColorCorrectionEffect")
+        colorCorrection.Name = "AtmosphereColorCorrection"
+        colorCorrection.Contrast = 0.1
+        colorCorrection.Saturation = 0.5
+        colorCorrection.TintColor = Color3.fromRGB(150, 100, 200)
+        colorCorrection.Parent = lighting
+    else
+        colorCorrection.Enabled = true
+    end
+
+    if not atmosphereEffect then
+        atmosphereEffect = Instance.new("Atmosphere")
+        atmosphereEffect.Name = "CustomAtmosphere"
+        atmosphereEffect.Density = 0.3
+        atmosphereEffect.Offset = 0.25
+        atmosphereEffect.Color = Color3.fromRGB(150, 50, 200)
+        atmosphereEffect.Decay = Color3.fromRGB(50, 150, 50)
+        atmosphereEffect.Glare = 0.1
+        atmosphereEffect.Haze = 2
+        atmosphereEffect.Parent = lighting
+    else
+        atmosphereEffect.Enabled = true
+    end
+end
+
+local function disableAtmosphere()
+    for setting, value in pairs(originalSettings) do
+        lighting[setting] = value
+    end
+
+    if colorCorrection then
+        colorCorrection.Enabled = false
+    end
+
+    if atmosphereEffect then
+        atmosphereEffect.Enabled = false
+    end
+end
+
+atmosphereButtonPanel.MouseButton1Click:Connect(function()
+    atmosphereActivePanel = not atmosphereActivePanel
+    
+    if atmosphereActivePanel then
+        atmosphereButtonPanel.BackgroundColor3 = Color3.fromRGB(110, 196, 81)
+        atmosphereButtonPanel.Text = "ATMOSPHERE: ON"
+        enableAtmosphere()
+    else
+        atmosphereButtonPanel.BackgroundColor3 = Color3.fromRGB(255, 255, 0)
+        atmosphereButtonPanel.Text = "ATMOSPHERE: OFF"
+        disableAtmosphere()
+    end
+end)
+
+local instantBreakButtonCorner = Instance.new("UICorner")
+instantBreakButtonCorner.CornerRadius = UDim.new(0, 8)
+instantBreakButtonCorner.Parent = instantBreakButton
+
+local noFallButtonMain = Instance.new("TextButton")
+noFallButtonMain.Size = UDim2.new(0.9, 0, 0, 40)
+noFallButtonMain.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+noFallButtonMain.TextColor3 = Color3.fromRGB(255, 255, 255)
+noFallButtonMain.Font = Enum.Font.Gotham
+noFallButtonMain.TextSize = 14
+noFallButtonMain.Text = "NO FALL: OFF"
+noFallButtonMain.Parent = scrollingFrame
+
+local noFallButtonMainCorner = Instance.new("UICorner")
+noFallButtonMainCorner.CornerRadius = UDim.new(0, 8)
+noFallButtonMainCorner.Parent = noFallButtonMain
+
+local jesusButtonMain = Instance.new("TextButton")
+jesusButtonMain.Size = UDim2.new(0.9, 0, 0, 40)
+jesusButtonMain.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
+jesusButtonMain.TextColor3 = Color3.fromRGB(255, 255, 255)
+jesusButtonMain.Font = Enum.Font.Gotham
+jesusButtonMain.TextSize = 14
+jesusButtonMain.Text = "JESUS: OFF"
+jesusButtonMain.Parent = scrollingFrame
+
+local jesusButtonMainCorner = Instance.new("UICorner")
+jesusButtonMainCorner.CornerRadius = UDim.new(0, 8)
+jesusButtonMainCorner.Parent = jesusButtonMain
+
+local dupingMenuButton = Instance.new("TextButton")
+dupingMenuButton.Size = UDim2.new(0.9, 0, 0, 40)
+dupingMenuButton.BackgroundColor3 = Color3.fromRGB(150, 0, 150)
+dupingMenuButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+dupingMenuButton.Font = Enum.Font.Gotham
+dupingMenuButton.TextSize = 14
+dupingMenuButton.Text = "DUPING MENU"
+dupingMenuButton.Parent = scrollingFrame
+
+local dupingMenuButtonCorner = Instance.new("UICorner")
+dupingMenuButtonCorner.CornerRadius = UDim.new(0, 8)
+dupingMenuButtonCorner.Parent = dupingMenuButton
+
+local xrayMenuButton = Instance.new("TextButton")
+xrayMenuButton.Size = UDim2.new(0.9, 0, 0, 40)
+xrayMenuButton.BackgroundColor3 = Color3.fromRGB(80, 160, 80)
+xrayMenuButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+xrayMenuButton.Font = Enum.Font.Gotham
+xrayMenuButton.TextSize = 14
+xrayMenuButton.Text = "XRAY MENU"
+xrayMenuButton.Parent = scrollingFrame
+
+local xrayMenuButtonCorner = Instance.new("UICorner")
+xrayMenuButtonCorner.CornerRadius = UDim.new(0, 8)
+xrayMenuButtonCorner.Parent = xrayMenuButton
+
+local enderChestButton = Instance.new("TextButton")
+enderChestButton.Size = UDim2.new(0.9, 0, 0, 40)
+enderChestButton.BackgroundColor3 = Color3.fromRGB(100, 50, 150)
+enderChestButton.TextColor3 = Color3.fromRGB(255, 220, 255)
+enderChestButton.Font = Enum.Font.Gotham
+enderChestButton.TextSize = 14
+enderChestButton.Text = "OPEN ENDER CHEST"
+enderChestButton.Parent = scrollingFrame
+
+local enderChestButtonCorner = Instance.new("UICorner")
+enderChestButtonCorner.CornerRadius = UDim.new(0, 8)
+enderChestButtonCorner.Parent = enderChestButton
+
+local teamListButton = Instance.new("TextButton")
+teamListButton.Size = UDim2.new(0.9, 0, 0, 40)
+teamListButton.BackgroundColor3 = Color3.fromRGB(60, 60, 100)
+teamListButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+teamListButton.Font = Enum.Font.Gotham
+teamListButton.TextSize = 14
+teamListButton.Text = "TEAM LIST"
+teamListButton.Parent = scrollingFrame
+
+local teamListButtonCorner = Instance.new("UICorner")
+teamListButtonCorner.CornerRadius = UDim.new(0, 8)
+teamListButtonCorner.Parent = teamListButton
+
+local unlockCameraButton = Instance.new("TextButton")
+unlockCameraButton.Size = UDim2.new(0.9, 0, 0, 40)
+unlockCameraButton.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+unlockCameraButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+unlockCameraButton.Font = Enum.Font.Gotham
+unlockCameraButton.TextSize = 14
+unlockCameraButton.Text = "UNLOCK CAMERA: OFF"
+unlockCameraButton.Parent = scrollingFrame
+
+local unlockCameraButtonCorner = Instance.new("UICorner")
+unlockCameraButtonCorner.CornerRadius = UDim.new(0, 8)
+unlockCameraButtonCorner.Parent = unlockCameraButton
+
+local cameraUnlocked = false
+
+unlockCameraButton.MouseButton1Click:Connect(function()
+	cameraUnlocked = not cameraUnlocked
+	
+	if cameraUnlocked then
+		game:GetService("Players").LocalPlayer.CameraMaxZoomDistance = 99999
+		game:GetService("Players").LocalPlayer.CameraMode = Enum.CameraMode.Classic
+		unlockCameraButton.Text = "UNLOCK CAMERA: ON"
+		unlockCameraButton.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+	else
+		game:GetService("Players").LocalPlayer.CameraMaxZoomDistance = 11
+		game:GetService("Players").LocalPlayer.CameraMode = Enum.CameraMode.Classic
+		unlockCameraButton.Text = "UNLOCK CAMERA: OFF"
+		unlockCameraButton.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+	end
+end)
+
+local infinityJumpFrame = Instance.new("TextButton")
+infinityJumpFrame.Size = UDim2.new(0.9, 0, 0, 40)
+infinityJumpFrame.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+infinityJumpFrame.TextColor3 = Color3.fromRGB(255, 255, 255)
+infinityJumpFrame.Font = Enum.Font.Gotham
+infinityJumpFrame.TextSize = 14
+infinityJumpFrame.Text = "INFINITY JUMP: OFF"
+infinityJumpFrame.Parent = scrollingFrame
+
+local infinityJumpCorner = Instance.new("UICorner")
+infinityJumpCorner.CornerRadius = UDim.new(0, 8)
+infinityJumpCorner.Parent = infinityJumpFrame
+
+local infinityJumpActive = false
+
+local function infinityJumpUpdate()
+    if infinityJumpActive and UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+        local character = player.Character
+        if character and character:FindFirstChild("Humanoid") then
+            character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end
+
+infinityJumpFrame.MouseButton1Click:Connect(function()
+    infinityJumpActive = not infinityJumpActive
+    
+    if infinityJumpActive then
+        infinityJumpFrame.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+        infinityJumpFrame.Text = "INFINITY JUMP: ON"
+    else
+        infinityJumpFrame.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+        infinityJumpFrame.Text = "INFINITY JUMP: OFF"
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    infinityJumpUpdate()
+end)
+
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.new(0.9, 0, 0, 40)
+closeButton.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeButton.Font = Enum.Font.Gotham
+closeButton.TextSize = 14
+closeButton.Text = "CLOSE PANEL"
+closeButton.Parent = scrollingFrame
+
+local closeButtonCorner = Instance.new("UICorner")
+closeButtonCorner.CornerRadius = UDim.new(0, 8)
+closeButtonCorner.Parent = closeButton
+
+local dupingMenuWindow = Instance.new("Frame")
+dupingMenuWindow.Size = UDim2.new(0, 300, 0, 250)
+dupingMenuWindow.Position = UDim2.new(0.5, -150, 0.5, -125)
+dupingMenuWindow.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+dupingMenuWindow.BorderSizePixel = 2
+dupingMenuWindow.BorderColor3 = Color3.fromRGB(150, 0, 150)
+dupingMenuWindow.Visible = false
+dupingMenuWindow.Active = true
+dupingMenuWindow.Draggable = true
+dupingMenuWindow.Selectable = true
+dupingMenuWindow.Parent = screenGui
+
+local dupingMenuWindowCorner = Instance.new("UICorner")
+dupingMenuWindowCorner.CornerRadius = UDim.new(0, 12)
+dupingMenuWindowCorner.Parent = dupingMenuWindow
+
+local dupingMenuTitle = Instance.new("TextLabel")
+dupingMenuTitle.Size = UDim2.new(1, 0, 0.12, 0)
+dupingMenuTitle.Position = UDim2.new(0, 0, 0, 10)
+dupingMenuTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+dupingMenuTitle.BackgroundTransparency = 1
+dupingMenuTitle.Font = Enum.Font.GothamBold
+dupingMenuTitle.TextSize = 18
+dupingMenuTitle.Text = "DUPING MENU"
+dupingMenuTitle.Parent = dupingMenuWindow
+
+local closeDupingMenuButton = Instance.new("TextButton")
+closeDupingMenuButton.Size = UDim2.new(0.1, 0, 0.12, 0)
+closeDupingMenuButton.Position = UDim2.new(0.85, 0, 0, 10)
+closeDupingMenuButton.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+closeDupingMenuButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeDupingMenuButton.Font = Enum.Font.GothamBold
+closeDupingMenuButton.TextSize = 16
+closeDupingMenuButton.Text = "X"
+closeDupingMenuButton.Parent = dupingMenuWindow
+
+local closeDupingMenuCorner = Instance.new("UICorner")
+closeDupingMenuCorner.CornerRadius = UDim.new(0, 8)
+closeDupingMenuCorner.Parent = closeDupingMenuButton
+
+local dupingMenuScrolling = Instance.new("ScrollingFrame")
+dupingMenuScrolling.Size = UDim2.new(0.92, 0, 0.8, 0)
+dupingMenuScrolling.Position = UDim2.new(0.04, 0, 0.15, 0)
+dupingMenuScrolling.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+dupingMenuScrolling.BorderSizePixel = 0
+dupingMenuScrolling.ScrollBarThickness = 8
+dupingMenuScrolling.ScrollBarImageColor3 = Color3.fromRGB(150, 0, 150)
+dupingMenuScrolling.Parent = dupingMenuWindow
+
+local dupingMenuListLayout = Instance.new("UIListLayout")
+dupingMenuListLayout.Padding = UDim.new(0, 5)
+dupingMenuListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+dupingMenuListLayout.Parent = dupingMenuScrolling
+
+local teamListWindow = Instance.new("Frame")
+teamListWindow.Size = UDim2.new(0, 350, 0, 400)
+teamListWindow.Position = UDim2.new(0.5, -175, 0.5, -200)
+teamListWindow.BackgroundColor3 = Color3.fromRGB(20, 20, 40)
+teamListWindow.BorderSizePixel = 2
+teamListWindow.BorderColor3 = Color3.fromRGB(0, 100, 200)
+teamListWindow.Visible = false
+teamListWindow.Active = true
+teamListWindow.Draggable = true
+teamListWindow.Selectable = true
+teamListWindow.Parent = screenGui
+
+local teamListWindowCorner = Instance.new("UICorner")
+teamListWindowCorner.CornerRadius = UDim.new(0, 12)
+teamListWindowCorner.Parent = teamListWindow
+
+local teamListTitle = Instance.new("TextLabel")
+teamListTitle.Size = UDim2.new(1, 0, 0.08, 0)
+teamListTitle.Position = UDim2.new(0, 0, 0, 10)
+teamListTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+teamListTitle.BackgroundTransparency = 1
+teamListTitle.Font = Enum.Font.GothamBold
+teamListTitle.TextSize = 18
+teamListTitle.Text = "TEAM LIST - ALL PLAYERS"
+teamListTitle.Parent = teamListWindow
+
+local refreshButton = Instance.new("TextButton")
+refreshButton.Size = UDim2.new(0.2, 0, 0.08, 0)
+refreshButton.Position = UDim2.new(0.75, 0, 0.02, 0)
+refreshButton.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+refreshButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+refreshButton.Font = Enum.Font.Gotham
+refreshButton.TextSize = 12
+refreshButton.Text = "REFRESH"
+refreshButton.Parent = teamListWindow
+
+local refreshButtonCorner = Instance.new("UICorner")
+refreshButtonCorner.CornerRadius = UDim.new(0, 6)
+refreshButtonCorner.Parent = refreshButton
+
+local teamListScrolling = Instance.new("ScrollingFrame")
+teamListScrolling.Size = UDim2.new(0.92, 0, 0.75, 0)
+teamListScrolling.Position = UDim2.new(0.04, 0, 0.12, 0)
+teamListScrolling.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+teamListScrolling.BorderSizePixel = 0
+teamListScrolling.ScrollBarThickness = 8
+teamListScrolling.ScrollBarImageColor3 = Color3.fromRGB(0, 100, 200)
+teamListScrolling.Parent = teamListWindow
+
+local teamListLayout = Instance.new("UIListLayout")
+teamListLayout.Padding = UDim.new(0, 5)
+teamListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+teamListLayout.Parent = teamListScrolling
+
+local infoLabel = Instance.new("TextLabel")
+infoLabel.Size = UDim2.new(0.9, 0, 0.05, 0)
+infoLabel.Position = UDim2.new(0.05, 0, 0.89, 0)
+infoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+infoLabel.BackgroundTransparency = 1
+infoLabel.Font = Enum.Font.Gotham
+infoLabel.TextSize = 11
+infoLabel.Text = "❌ = KILL AURA ATTACKS   ✅ = IGNORED BY KILL AURA"
+infoLabel.TextXAlignment = Enum.TextXAlignment.Center
+infoLabel.Parent = teamListWindow
+
+local closeTeamListButton = Instance.new("TextButton")
+closeTeamListButton.Size = UDim2.new(0.8, 0, 0.08, 0)
+closeTeamListButton.Position = UDim2.new(0.1, 0, 0.88, 0)
+closeTeamListButton.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
+closeTeamListButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeTeamListButton.Font = Enum.Font.Gotham
+closeTeamListButton.TextSize = 14
+closeTeamListButton.Text = "CLOSE"
+closeTeamListButton.Parent = teamListWindow
+
+local closeTeamListCorner = Instance.new("UICorner")
+closeTeamListCorner.CornerRadius = UDim.new(0, 8)
+closeTeamListCorner.Parent = closeTeamListButton
+
+local function CreateDupingButton(name, callback)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0.9, 0, 0, 40)
+    Button.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    Button.BackgroundTransparency = 0.3
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.Font = Enum.Font.Gotham
+    Button.TextSize = 14
+    Button.Text = name
+    Button.Parent = dupingMenuScrolling
+    
+    local ButtonCorner = Instance.new("UICorner")
+    ButtonCorner.CornerRadius = UDim.new(0, 8)
+    ButtonCorner.Parent = Button
+    
+    Button.MouseEnter:Connect(function()
+        TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundTransparency = 0.1}):Play()
+    end)
+    
+    Button.MouseLeave:Connect(function()
+        TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundTransparency = 0.3}):Play()
+    end)
+    
+    Button.MouseButton1Click:Connect(function()
+        callback()
+    end)
+    
+    return Button
+end
+
+CreateDupingButton("Dupe Selected Item", DupeSelectedItem)
+CreateDupingButton("Dupe With Chest", DupeWithChest)
+CreateDupingButton("Fast Dupe Method", DupeMethod2)
+CreateDupingButton("Kill Me", KillMe)
+
+local function updateTeamListDisplay()
+    for _, child in ipairs(teamListScrolling:GetChildren()) do
+        if child:IsA("TextLabel") or child:IsA("Frame") then
+            child:Destroy()
+        end
+    end
+    
+    local allPlayers = Players:GetPlayers()
+    
+    local selfFrame = Instance.new("Frame")
+    selfFrame.Size = UDim2.new(0.95, 0, 0, 35)
+    selfFrame.BackgroundColor3 = Color3.fromRGB(40, 60, 80)
+    selfFrame.Parent = teamListScrolling
+    
+    local selfFrameCorner = Instance.new("UICorner")
+    selfFrameCorner.CornerRadius = UDim.new(0, 8)
+    selfFrameCorner.Parent = selfFrame
+    
+    local selfLabel = Instance.new("TextLabel")
+    selfLabel.Size = UDim2.new(0.7, 0, 1, 0)
+    selfLabel.Position = UDim2.new(0, 10, 0, 0)
+    selfLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    selfLabel.BackgroundTransparency = 1
+    selfLabel.Font = Enum.Font.GothamBold
+    selfLabel.TextSize = 13
+    selfLabel.Text = player.Name .. " (YOU)"
+    selfLabel.TextXAlignment = Enum.TextXAlignment.Left
+    selfLabel.Parent = selfFrame
+    
+    local selfStatus = Instance.new("TextLabel")
+    selfStatus.Size = UDim2.new(0.25, 0, 0.7, 0)
+    selfStatus.Position = UDim2.new(0.7, 0, 0.15, 0)
+    selfStatus.TextColor3 = Color3.fromRGB(150, 255, 150)
+    selfStatus.BackgroundTransparency = 1
+    selfStatus.Font = Enum.Font.GothamBold
+    selfStatus.TextSize = 12
+    selfStatus.Text = "YOU"
+    selfStatus.Parent = selfFrame
+    
+    local separator = Instance.new("Frame")
+    separator.Size = UDim2.new(0.9, 0, 0, 2)
+    separator.BackgroundColor3 = Color3.fromRGB(100, 100, 150)
+    separator.Parent = teamListScrolling
+    
+    for _, otherPlayer in ipairs(allPlayers) do
+        if otherPlayer ~= player then
+            local playerFrame = Instance.new("Frame")
+            playerFrame.Size = UDim2.new(0.95, 0, 0, 35)
+            
+            if otherPlayer.Character and otherPlayer.Character:FindFirstChild("Humanoid") then
+                if otherPlayer.Character.Humanoid.Health > 0 then
+                    playerFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
+                else
+                    playerFrame.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
+                end
+            else
+                playerFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+            end
+            
+            playerFrame.Parent = teamListScrolling
+            
+            local playerFrameCorner = Instance.new("UICorner")
+            playerFrameCorner.CornerRadius = UDim.new(0, 8)
+            playerFrameCorner.Parent = playerFrame
+            
+            local playerLabel = Instance.new("TextLabel")
+            playerLabel.Size = UDim2.new(0.6, 0, 1, 0)
+            playerLabel.Position = UDim2.new(0, 10, 0, 0)
+            playerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            playerLabel.BackgroundTransparency = 1
+            playerLabel.Font = Enum.Font.Gotham
+            playerLabel.TextSize = 13
+            
+            local displayText = otherPlayer.Name
+            if otherPlayer.Character and otherPlayer.Character:FindFirstChild("Humanoid") then
+                local health = math.floor(otherPlayer.Character.Humanoid.Health)
+                local maxHealth = math.floor(otherPlayer.Character.Humanoid.MaxHealth)
+                if health > 0 then
+                    displayText = otherPlayer.Name .. " (" .. health .. "/" .. maxHealth .. ")"
+                else
+                    displayText = otherPlayer.Name .. " (DEAD)"
+                end
+            end
+            
+            playerLabel.Text = displayText
+            playerLabel.TextXAlignment = Enum.TextXAlignment.Left
+            playerLabel.Parent = playerFrame
+            
+            local toggleButton = Instance.new("TextButton")
+            toggleButton.Size = UDim2.new(0.25, 0, 0.7, 0)
+            toggleButton.Position = UDim2.new(0.7, 0, 0.15, 0)
+            
+            local isIgnored = table.find(ignoredPlayers, otherPlayer.Name) ~= nil
+            playerStates[otherPlayer.Name] = isIgnored
+            
+            if isIgnored then
+                toggleButton.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+                toggleButton.Text = "✅"
+            else
+                toggleButton.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+                toggleButton.Text = "❌"
+            end
+            
+            toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+            toggleButton.Font = Enum.Font.GothamBold
+            toggleButton.TextSize = 16
+            toggleButton.Parent = playerFrame
+            
+            local toggleButtonCorner = Instance.new("UICorner")
+            toggleButtonCorner.CornerRadius = UDim.new(0, 6)
+            toggleButtonCorner.Parent = toggleButton
+            
+            toggleButton.MouseButton1Click:Connect(function()
+                local currentState = playerStates[otherPlayer.Name] or false
+                local newState = not currentState
+                playerStates[otherPlayer.Name] = newState
+                
+                if newState then
+                    if not table.find(ignoredPlayers, otherPlayer.Name) then
+                        table.insert(ignoredPlayers, otherPlayer.Name)
+                    end
+                    toggleButton.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+                    toggleButton.Text = "✅"
+                else
+                    for i, name in ipairs(ignoredPlayers) do
+                        if name == otherPlayer.Name then
+                            table.remove(ignoredPlayers, i)
+                            break
+                        end
+                    end
+                    toggleButton.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+                    toggleButton.Text = "❌"
+                end
+            end)
+        end
+    end
+    
+    teamListScrolling.CanvasSize = UDim2.new(0, 0, 0, teamListLayout.AbsoluteContentSize.Y + 10)
+end
+
+local function updateSpeedSlider()
+    local fillAmount = (speedMultiplier - 1) / 9
+    speedFill.Size = UDim2.new(fillAmount, 0, 1, 0)
+    speedValueLabel.Text = "Speed: " .. string.format("%.1f", speedMultiplier) .. "x"
+end
+
+updateSpeedSlider()
+
+speedSlider.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local connection
+        connection = RunService.RenderStepped:Connect(function()
+            local mousePos = UserInputService:GetMouseLocation()
+            local sliderPos = speedSlider.AbsolutePosition
+            local sliderSize = speedSlider.AbsoluteSize
+            
+            local relativeX = math.clamp((mousePos.X - sliderPos.X) / sliderSize.X, 0, 1)
+            speedMultiplier = 1 + (relativeX * 9)
+            updateSpeedSlider()
+            
+            if speedActive then
+                local character = player.Character
+                if character and character:FindFirstChild("Humanoid") then
+                    character.Humanoid.WalkSpeed = originalWalkSpeed * speedMultiplier
+                end
+            end
+        end)
+        
+        UserInputService.InputEnded:Connect(function(inputEnded)
+            if inputEnded.UserInputType == Enum.UserInputType.MouseButton1 then
+                connection:Disconnect()
+            end
+        end)
+    end
+end)
+
+instantBreakButton.MouseButton1Click:Connect(function()
+    instantBreakEnabled = not instantBreakEnabled
+    if instantBreakEnabled then
+        instantBreakButton.Text = "INSTANT BREAK: ON"
+        instantBreakButton.BackgroundColor3 = Color3.fromRGB(60, 180, 80)
+    else
+        instantBreakButton.Text = "INSTANT BREAK: OFF"
+        instantBreakButton.BackgroundColor3 = Color3.fromRGB(80, 160, 255)
+    end
+end)
+
+noFallButtonMain.MouseButton1Click:Connect(function()
+    toggleNoFall()
+    if noFallEnabled then
+        noFallButtonMain.Text = "NO FALL: ON"
+        noFallButtonMain.BackgroundColor3 = Color3.fromRGB(60, 180, 80)
+    else
+        noFallButtonMain.Text = "NO FALL: OFF"
+        noFallButtonMain.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+    end
+end)
+
+jesusButtonMain.MouseButton1Click:Connect(function()
+    toggleJesus()
+    if jesusEnabled then
+        jesusButtonMain.Text = "JESUS: ON"
+        jesusButtonMain.BackgroundColor3 = Color3.fromRGB(60, 180, 80)
+    else
+        jesusButtonMain.Text = "JESUS: OFF"
+        jesusButtonMain.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
+    end
+end)
+
+local function toggleSpeed()
+    speedActive = not speedActive
+    speedButton.Text = "SPEED: " .. (speedActive and "ON" or "OFF")
+    speedButton.BackgroundColor3 = speedActive and Color3.fromRGB(0, 100, 0) or Color3.fromRGB(50, 50, 70)
+    
+    local character = player.Character
+    if character and character:FindFirstChild("Humanoid") then
+        if speedActive then
+            originalWalkSpeed = character.Humanoid.WalkSpeed
+            character.Humanoid.WalkSpeed = originalWalkSpeed * speedMultiplier
+        else
+            character.Humanoid.WalkSpeed = originalWalkSpeed
+        end
+    end
+end
+
+local function isPlayerIgnored(playerName)
+    return table.find(ignoredPlayers, playerName) ~= nil
+end
+
+speedButton.MouseButton1Click:Connect(toggleSpeed)
+
+auraButton.MouseButton1Click:Connect(function()
+    killAuraActive = not killAuraActive
+    auraButton.Text = "KILL AURA: " .. (killAuraActive and "ON" or "OFF")
+    auraButton.BackgroundColor3 = killAuraActive and Color3.fromRGB(0, 100, 0) or Color3.fromRGB(100, 0, 0)
+end)
+
+dupingMenuButton.MouseButton1Click:Connect(function()
+    dupingMenuWindow.Visible = true
+    controlPanel.Visible = false
+    dupingMenuScrolling.CanvasSize = UDim2.new(0, 0, 0, dupingMenuListLayout.AbsoluteContentSize.Y + 10)
+end)
+
+xrayMenuButton.MouseButton1Click:Connect(function()
+    createXrayMenu()
+    controlPanel.Visible = false
+end)
+
+local originalChestName = nil
+local originalChestColor = nil
+local chestRenamed = false
+
+local function openEnderChest()
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+    
+    task.wait(0.035)
+    
+    local playerGui = player.PlayerGui
+    local inventory = playerGui.HUDGui.Inventory
+    
+    inventory.Chest.Visible = true
+    inventory.Crafting.Visible = false
+    inventory.Mirror.Visible = false
+    inventory.ResultSlot.Visible = false
+    
+    local slotsToHide = {
+        "Slot100", "Slot101", "Slot102", "Slot103",
+        "Slot80", "Slot81", "Slot82", "Slot83", "Slot84", 
+        "Slot85", "Slot86", "Slot87", "Slot88"
+    }
+    
+    for _, slotName in ipairs(slotsToHide) do
+        local slot = inventory.Slots:FindFirstChild(slotName)
+        if slot then
+            slot.Visible = false
+        end
+    end
+    
+    local chestFrame = inventory.Chest
+    if chestFrame then
+        for _, child in pairs(chestFrame:GetChildren()) do
+            if child:IsA("TextLabel") and (child.Text == "Chest" or child.Text == "Сундук") then
+                if not chestRenamed then
+                    originalChestName = child.Text
+                    originalChestColor = child.TextColor3
+                end
+                
+                child.Text = "ENDER CHEST"
+                child.TextColor3 = Color3.fromRGB(150, 50, 200)
+                chestRenamed = true
+                break
+            end
+        end
+    end
+    
+    notify("Ender Chest opened . Don't open an original chest.")
+end
+
+enderChestButton.MouseButton1Click:Connect(openEnderChest)
+
+if player.PlayerGui then
+    local inventory = player.PlayerGui:WaitForChild("HUDGui"):WaitForChild("Inventory")
+    local chestFrame = inventory:WaitForChild("Chest")
+    
+    local inventoryFrame = player.PlayerGui.HUDGui.Inventory
+    
+    inventoryFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+        if not inventoryFrame.Visible and chestRenamed and originalChestName and originalChestColor then
+            for _, child in pairs(chestFrame:GetChildren()) do
+                if child:IsA("TextLabel") and child.Text == "ENDER CHEST" then
+                    child.Text = originalChestName
+                    child.TextColor3 = originalChestColor
+                    chestRenamed = false
+                    break
+                end
+            end
+        end
+    end)
+end
+
+closeDupingMenuButton.MouseButton1Click:Connect(function()
+    dupingMenuWindow.Visible = false
+end)
+
+teamListButton.MouseButton1Click:Connect(function()
+    teamListWindow.Visible = true
+    updateTeamListDisplay()
+    controlPanel.Visible = false
+end)
+
+refreshButton.MouseButton1Click:Connect(function()
+    updateTeamListDisplay()
+end)
+
+closeTeamListButton.MouseButton1Click:Connect(function()
+    teamListWindow.Visible = false
+end)
+
+closeButton.MouseButton1Click:Connect(function()
+    controlPanel.Visible = false
+end)
+
+openPanelButton.MouseButton1Click:Connect(function()
+    controlPanel.Visible = not controlPanel.Visible
+    if controlPanel.Visible then
+        scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, uiListLayout.AbsoluteContentSize.Y + 10)
+    end
+end)
+
+uiListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, uiListLayout.AbsoluteContentSize.Y + 10)
+end)
+
+dupingMenuListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    dupingMenuScrolling.CanvasSize = UDim2.new(0, 0, 0, dupingMenuListLayout.AbsoluteContentSize.Y + 10)
+end)
+
+local function getClosestPlayer()
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    local myCharacter = player.Character
+    local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+
+    if not myCharacter or not myRoot then return nil end
+
+    for _, v in pairs(Players:GetPlayers()) do
+        if v ~= player and v.Character and v.Character.PrimaryPart then
+            local targetRoot = v.Character:FindFirstChild("HumanoidRootPart")
+            local targetHumanoid = v.Character:FindFirstChild("Humanoid")
+            
+            if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
+                if not isPlayerIgnored(v.Name) then
+                    local distance = (targetRoot.Position - myRoot.Position).magnitude
+                    if distance < shortestDistance then
+                        closestPlayer = v.Character
+                        shortestDistance = distance
+                    end
+                end
+            end
+        end
+    end
+
+    return closestPlayer
+end
+
+local radius = 15
+local numParts = 36
+local circleParts = {}
+local circlePartsFolder
+
+local function createCircle()
+    if circlePartsFolder then
+        circlePartsFolder:Destroy()
+        circlePartsFolder = nil
+    end
+    
+    for i = #circleParts, 1, -1 do
+        if circleParts[i] then
+            circleParts[i]:Destroy()
+            table.remove(circleParts, i)
+        end
+    end
+    
+    circlePartsFolder = Instance.new("Folder")
+    circlePartsFolder.Name = "KillAuraCircle"
+    
+    for i = 1, numParts do
+        local part = Instance.new("Part")
+        part.Name = "CirclePart" .. i
+        part.Anchored = true
+        part.CanCollide = false
+        part.Material = Enum.Material.Neon
+        part.Color = Color3.fromRGB(128, 0, 255)
+        part.Size = Vector3.new(1, 0.1, (2 * math.pi * radius) / numParts)
+        part.Transparency = 0.3
+        part.Parent = circlePartsFolder
+        table.insert(circleParts, part)
+    end
+    
+    return circlePartsFolder
+end
+
+local function updateCirclePosition()
+    if not killAuraActive then
+        if circlePartsFolder then
+            circlePartsFolder:Destroy()
+            circlePartsFolder = nil
+        end
+        return
+    end
+    
+    local character = player.Character
+    if not character then
+        if circlePartsFolder then
+            circlePartsFolder:Destroy()
+            circlePartsFolder = nil
+        end
+        return
+    end
+    
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then
+        if circlePartsFolder then
+            circlePartsFolder:Destroy()
+            circlePartsFolder = nil
+        end
+        return
+    end
+    
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then
+        if circlePartsFolder then
+            circlePartsFolder:Destroy()
+            circlePartsFolder = nil
+        end
+        return
+    end
+    
+    if not circlePartsFolder or not circlePartsFolder.Parent then
+        circlePartsFolder = createCircle()
+        if circlePartsFolder then
+            circlePartsFolder.Parent = workspace
+        end
+    end
+    
+    if not circlePartsFolder or #circleParts == 0 then return end
+    
+    local cframe = rootPart.CFrame
+    local angleIncrement = math.rad(360 / numParts)
+    
+    for i, part in ipairs(circleParts) do
+        if part and part.Parent then
+            local angle = angleIncrement * i
+            local x = math.cos(angle) * radius
+            local z = math.sin(angle) * radius
+            
+            part.CFrame = cframe * CFrame.new(x, -2, z) * CFrame.Angles(0, -angle, 0)
+            part.Color = killAuraActive and Color3.fromRGB(128, 0, 255) or Color3.fromRGB(255, 0, 0)
+            part.Transparency = killAuraActive and 0.3 or 0.5
+        end
+    end
+end
+
+local function cleanupCircle()
+    if circlePartsFolder then
+        circlePartsFolder:Destroy()
+        circlePartsFolder = nil
+    end
+    
+    for i = #circleParts, 1, -1 do
+        if circleParts[i] then
+            circleParts[i]:Destroy()
+        end
+        circleParts[i] = nil
+    end
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.G and not gameProcessed then
+        holdStartTimeG = tick()
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.G and not gameProcessed then
+        local holdTime = tick() - (holdStartTimeG or tick())
+        
+        if holdTime < holdDurationG then
+            killAuraActive = not killAuraActive
+            auraButton.Text = "KILL AURA: " .. (killAuraActive and "ON" or "OFF")
+            auraButton.BackgroundColor3 = killAuraActive and Color3.fromRGB(0, 100, 0) or Color3.fromRGB(100, 0, 0)
+        else
+            mouseLocked = true
+        end
+        
+        holdStartTimeG = nil
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+        cleanupCircle()
+        return
+    end
+    
+    updateCirclePosition()
+    
+    if holdStartTimeG and (tick() - holdStartTimeG) >= holdDurationG and mouseLocked then
+        mouseLocked = false
+        killAuraActive = false
+        auraButton.Text = "KILL AURA: OFF"
+        auraButton.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
+    end
+end)
+
+spawn(function()
+    while true do
+        task.wait(killAuraDelay)
+        
+        if killAuraActive and mouseLocked then
+            local target = getClosestPlayer()
+            if target and target:FindFirstChild("Humanoid") and target.Humanoid.Health > 0 then
+                local args = {target}
+                Attack:InvokeServer(unpack(args))
+            end
+        end
+    end
+end)
+
+local function checkAndSetupInstantBreak()
+    if ReplicatedStorage:FindFirstChild('GameRemotes') then
+        local gr = ReplicatedStorage.GameRemotes
+        local abb = gr:FindFirstChild('AcceptBreakBlock')
+        
+        if abb then
+            spawn(function()
+                while task.wait(0.1) do
+                    if instantBreakEnabled then
+                        pcall(function()
+                            abb:InvokeServer()
+                        end)
+                    end
+                end
+            end)
+            return true
+        end
+    end
+    return false
+end
+
+spawn(function()
+    task.wait(2)
+    setupBlockListener()
+    
+    task.wait(1)
+    checkAndSetupInstantBreak()
+    
+end)
+
+Players.PlayerAdded:Connect(function(newPlayer)
+    if teamListWindow.Visible then
+        updateTeamListDisplay()
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(leavingPlayer)
+    for i, name in ipairs(ignoredPlayers) do
+        if name == leavingPlayer.Name then
+            table.remove(ignoredPlayers, i)
+            break
+        end
+    end
+    playerStates[leavingPlayer.Name] = nil
+    
+    if teamListWindow.Visible then
+        updateTeamListDisplay()
+    end
+end)
+
+spawn(function()
+    while true do
+        task.wait(2)
+        if teamListWindow.Visible then
+            updateTeamListDisplay()
+        end
+    end
+end)
+
+player.CharacterAdded:Connect(function(character)
+    cleanupCircle()
+    
+    spawn(function()
+        wait(1)
+        for name, state in pairs(xrayESPStates) do
+            if state then
+                if name == "Custom" then
+                    initESP(customBlockName, true)
+                else
+                    initESP(name, true)
+                end
+            end
+        end
+    end)
+end)
+
+player.CharacterRemoving:Connect(function()
+    cleanupCircle()
+end)
+
+notify("Control Panel loaded successfully")
